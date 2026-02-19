@@ -1,0 +1,40 @@
+version: "3.9"
+
+services:
+  # SSE transport – browser/web clients
+  weather-sse:
+    build: .
+    container_name: weather-mcp-sse
+    command: ["--transport", "sse"]
+    ports:
+      - "8001:8000"
+    environment:
+      - MCP_TRANSPORT=sse
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8000
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import socket; s=socket.create_connection(('localhost',8000),2); s.close()"]
+      interval: 30s
+      timeout: 5s
+      start_period: 5s
+      retries: 3
+
+  # Streamable-HTTP transport – REST API clients
+  weather-http:
+    build: .
+    container_name: weather-mcp-http
+    command: ["--transport", "streamable-http"]
+    ports:
+      - "8002:8000"
+    environment:
+      - MCP_TRANSPORT=streamable-http
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8000
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import socket; s=socket.create_connection(('localhost',8000),2); s.close()"]
+      interval: 30s
+      timeout: 5s
+      start_period: 5s
+      retries: 3
