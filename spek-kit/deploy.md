@@ -125,7 +125,8 @@
 **FR-013:** Script MUST handle errors gracefully with clear messages  
 **FR-014:** Script MUST use `--command-line` to override the Dockerfile CMD, explicitly passing `--transport streamable-http --host 0.0.0.0 --port 8080` (env vars alone are insufficient because the Dockerfile CMD passes `--transport stdio` as a CLI arg which takes argparse precedence)  
 **FR-015:** Script MUST delete any existing container instance before creating a new one (idempotent re-deploy)  
-**FR-016:** Script MUST NOT use `--tags` with `az container create` (unsupported)
+**FR-016:** Script MUST NOT use `--tags` with `az container create` (unsupported)  
+**FR-017:** Script MUST validate ACR name availability globally before attempting to create (ACR names are globally unique across all Azure subscriptions). If the name exists in a different resource group or subscription, the script MUST inform the user and suggest alternatives rather than failing with a cryptic Azure error
 
 ### Non-Functional Requirements
 
@@ -242,6 +243,10 @@ weather-mcp-server/
 - ACR admin credentials are required for ACI to pull images; always ensure `--admin-enabled true`
 - The Dockerfile uses `CMD ["--transport", "stdio"]` which overrides the `MCP_TRANSPORT` env var (argparse CLI args take precedence over env-var defaults). ACI deployment MUST use `--command-line` to explicitly pass `--transport streamable-http --host 0.0.0.0 --port 8080`, replacing the default CMD
 - The MCP SDK enables DNS rebinding protection by default when the server is constructed with `host=127.0.0.1` (the default). This validates the `Host` header against an allowlist of `localhost`/`127.0.0.1`/`[::1]` only. Requests arriving with an external FQDN (e.g. `weather-mcp-aci.swedencentral.azurecontainer.io:8080`) are rejected with **421 Misdirected Request**. The server code MUST set `transport_security = None` when binding to a non-loopback address like `0.0.0.0`
+- ACR names are **globally unique** across all Azure subscriptions. Before creating a registry, use `az acr check-name --name <name>` to verify availability. If `az acr show --name <name>` succeeds without `--resource-group`, the registry exists in another RG/subscription — inform the user which resource group owns it and suggest using that RG or picking a different name. Never attempt `az acr create` with a globally-taken name (results in `AlreadyInUse` error)
+- `az container create` MUST include `--os-type Linux` — without it, ACI may fail with `InvalidOsType` error (`The 'osType' for container group '<null>' is invalid`)
+- The ACR and the ACI do NOT need to be in the same resource group. If a registry already exists in a different resource group, the script should offer to reuse it rather than forcing the user to re-run. Track the registry's resource group separately (e.g. `REGISTRY_RG`) and use it for all `az acr` commands (show, login, credential show), while continuing to use the user's chosen resource group for the ACI deployment
+- The container instance name is also used as the DNS name label, which must be unique within the Azure region. Append a random suffix (e.g. 6 hex chars + 3 random digits) to the base name to avoid collisions across deployments (e.g. `weather-mcp-aci-a3f1b2742`). Use the same suffix for the Docker image name in the registry (e.g. `weather-mcp-server-a3f1b2742`) so that each deployment pushes to a unique image repository, avoiding conflicts in shared registries. Do NOT use `xxd` (not available in all environments) — prefer `/proc/sys/kernel/random/uuid` and `$RANDOM`
 
 ### Implementation Phases
 
